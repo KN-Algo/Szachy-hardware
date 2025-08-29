@@ -14,11 +14,19 @@
 #define MUX_S2 16
 #define MUX_S3 17
 
-// Piny SIG dla każdego multiplexerów
-#define MUX1_SIG 18
-#define MUX2_SIG 19
-#define MUX3_SIG 20
-#define MUX4_SIG 21
+// Piny EN dla każdego multiplexerów
+#define MUX1_EN 18
+#define MUX2_EN 19
+#define MUX3_EN 20
+#define MUX4_EN 21
+
+// Pin SIG dla każdego multiplexerów
+#define MUX_SIG 24
+
 
 // Pin do sterowanie PWM eletromagensem:
 #define ELEKTROMAGNES_PIN 26
+
+// Piny do sterowania ledami 
+#define LED_BIALE 22
+#define LED_CZARNE 23

@@ -35,7 +35,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Szachy Szachy.c Corexy.c Multiplexery.c  Elektromagnes.c)
+add_executable(Szachy Szachy.c Corexy.c Multiplexery.c  Elektromagnes.c Ledy.c )
 
 pico_set_program_name(Szachy "Szachy")
 pico_set_program_version(Szachy "0.1")
@@ -58,10 +58,11 @@ target_include_directories(Szachy PRIVATE
 target_link_libraries(Szachy
     pico_multicore
     pico_stdlib
-    hardware_spi
     hardware_gpio
     hardware_dma
     hardware_i2c
+    hardware_pwm
+    pico_i2c_slave
 )
 
 pico_add_extra_outputs(Szachy)
