@@ -28,62 +28,71 @@ void corexy_init_gpio() {
     gpio_init(ENDSTOP_Y_PIN); gpio_set_dir(ENDSTOP_Y_PIN, GPIO_IN); gpio_pull_up(ENDSTOP_Y_PIN);
 }
 
-// --- Pojedynczy krok CoreXY ---
-void corexy_step(bool dir_a, bool dir_b, uint32_t step_delay_us) {
-    gpio_put(DIR_PIN_X, dir_a);
-    gpio_put(DIR_PIN_Y, dir_b);
+// --- Pojedynczy krok silników A i B ---
+static void corexy_step_AB(bool dirA, bool dirB, uint32_t step_delay_us) {
+    gpio_put(DIR_PIN_X, dirA);   // silnik A
+    gpio_put(DIR_PIN_Y, dirB);   // silnik B
 
     gpio_put(STEP_PIN_X, 1);
     gpio_put(STEP_PIN_Y, 1);
-    sleep_us(100);
+    sleep_us(5);   // krótki impuls STEP
     gpio_put(STEP_PIN_X, 0);
     gpio_put(STEP_PIN_Y, 0);
+
     sleep_us(step_delay_us);
 }
 
 // --- Ruch CoreXY z rampą ---
-void corexy_move_ramp(int x_steps, int y_steps) {
-    int dx = abs(x_steps), sx = x_steps >= 0 ? 1 : -1;
-    int dy = abs(y_steps), sy = y_steps >= 0 ? 1 : -1;
-    int err = (dx > dy ? dx : -dy) / 2, e2;
-    int steps = dx > dy ? dx : dy;
+// wejście: kroki w osiach kartezjańskich (X, Y)
+void corexy_move_ramp(int dx_steps, int dy_steps) {
+    // przelicz na ruchy silników A i B
+    int a_steps = dx_steps + dy_steps;
+    int b_steps = dx_steps - dy_steps;
+
+    int da = abs(a_steps), sa = (a_steps >= 0) ? 1 : -1;
+    int db = abs(b_steps), sb = (b_steps >= 0) ? 1 : -1;
+
+    int err = (da > db ? da : -db) / 2, e2;
+    int steps = (da > db ? da : db);
 
     for (int i = 0; i < steps; i++) {
+        // rampowanie prędkości
         uint delay = MAX_SPEED_US;
         if (i < ACCEL_STEPS)
             delay = MIN_SPEED_US - (MIN_SPEED_US - MAX_SPEED_US) * i / ACCEL_STEPS;
         else if (i > steps - DECEL_STEPS)
             delay = MIN_SPEED_US - (MIN_SPEED_US - MAX_SPEED_US) * (steps - i) / DECEL_STEPS;
+
         if (delay < MAX_SPEED_US) delay = MAX_SPEED_US;
         if (delay > MIN_SPEED_US) delay = MIN_SPEED_US;
 
-        int a_dir = ((sx + sy) >= 0) ? 1 : 0;
-        int b_dir = ((sx - sy) >= 0) ? 1 : 0;
-        corexy_step(a_dir, b_dir, delay);
+        // kierunki A i B
+        bool dirA = (sa > 0);
+        bool dirB = (sb > 0);
 
+        // wykonaj krok
+        corexy_step_AB(dirA, dirB, delay);
+
+        // Bresenham między A i B
         e2 = err;
-        if (e2 > -dx) { err -= dy; x_steps += sx; }
-        if (e2 < dy)  { err += dx; y_steps += sy; }
+        if (e2 > -da) { err -= db; a_steps -= sa; }
+        if (e2 < db)  { err += da; b_steps -= sb; }
     }
 }
 
 // --- Homing ---
 void corexy_home(void) {
     printf("Homing X...\n");
-    gpio_put(DIR_PIN_X, 0);
-    gpio_put(DIR_PIN_Y, 1);
-
     while (!gpio_get(ENDSTOP_X_PIN)) {
-        corexy_step(0, 1, MIN_SPEED_US);
+        // X- ruch = A- + B- (czyli w praktyce dobierz zgodnie z geometrią)
+        corexy_step_AB(0, 0, MIN_SPEED_US);
     }
     sleep_ms(200);
 
     printf("Homing Y...\n");
-    gpio_put(DIR_PIN_X, 1);
-    gpio_put(DIR_PIN_Y, 0);
-
     while (!gpio_get(ENDSTOP_Y_PIN)) {
-        corexy_step(1, 0, MIN_SPEED_US);
+        // Y- ruch = A- + B+ (do sprawdzenia kierunki!)
+        corexy_step_AB(0, 1, MIN_SPEED_US);
     }
     sleep_ms(200);
 
@@ -95,21 +104,17 @@ void corexy_home(void) {
 
 // --- Ruch do pozycji ---
 void corexy_move_to(float start_x, float start_y, float end_x, float end_y, bool enable_electromagnet) {
-    // Ustal różnicę w krokach
     int dx_steps = (int)((end_x - start_x) * steps_per_mm);
     int dy_steps = (int)((end_y - start_y) * steps_per_mm);
 
-    // Elektromagnes
     if (enable_electromagnet) {
-        elektromagnes_set_power(100); // np. pełna moc
+        elektromagnes_set_power(100);
     } else {
         elektromagnes_off();
     }
 
-    // Ruch
     corexy_move_ramp(dx_steps, dy_steps);
 
-    // Aktualizacja pozycji globalnej
     current_x = end_x;
     current_y = end_y;
 
