@@ -201,6 +201,64 @@ class I2CMoveController:
         if hasattr(self, 'bus') and self.bus:
             self.bus.close()
 
+    def read_board(self, timeout=5.0, poll_interval=0.1):
+        """
+        Read the 8x8 board state from the robotic device.
+
+        Sends the 'B' command to request a board scan, then waits for and
+        retrieves 65 bytes: 1 status byte + 64 board bytes.
+
+        Args:
+            timeout (float): Maximum time to wait for completion in seconds (default: 5.0)
+            poll_interval (float): Time between polls when waiting for data (default: 0.1)
+
+        Returns:
+            tuple: (status_byte, board) where:
+                - status_byte (int): ASCII code of status ('R' expected)
+                - board (list[list[int]]): 8x8 board as integers (0–255)
+
+        Raises:
+            Exception: If communication fails or timeout occurs
+        """
+        try:
+            # Wyślij komendę 'B'
+            command_byte = ord('B')
+            self.bus.write_byte(self.slave_addr, command_byte)
+
+            # Poczekaj na odpowiedź
+            start_time = time.time()
+            while True:
+                try:
+                    # Odczytaj pierwszy bajt (status)
+                    status_byte = self.bus.read_byte(self.slave_addr)
+
+                    if status_byte == ord('R'):
+                        # Odczytaj pozostałe 64 bajty tablicy
+                        data = self.bus.read_i2c_block_data(self.slave_addr, 0, 64)
+
+                        # Zamień na tablicę 8x8
+                        board = [data[i*8:(i+1)*8] for i in range(8)]
+                        return status_byte, board
+                    elif status_byte == ord('W'):
+                        # Urządzenie jeszcze pracuje – poczekaj
+                        time.sleep(poll_interval)
+                        continue
+                    elif status_byte == ord('E'):
+                        raise Exception("Device reported error during board scan")
+                    else:
+                        # Niespodziewany bajt – spróbuj ponownie aż do timeoutu
+                        time.sleep(poll_interval)
+
+                except Exception:
+                    # Jeśli nie uda się odczytać – spróbuj ponownie
+                    if time.time() - start_time > timeout:
+                        raise Exception("Timeout waiting for board scan response")
+                    time.sleep(poll_interval)
+
+        except Exception as e:
+            raise Exception(f"Failed to read board: {e}")
+
+
 
 # Convenience functions for backward compatibility and ease of use
 def create_controller(bus_number=1, slave_address=0x42):

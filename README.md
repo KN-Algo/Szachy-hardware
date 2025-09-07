@@ -4,7 +4,7 @@ Tu masz wszystko łopatologicznie rozpisane, coby każdy kumaty na Ślōnsku mó
 
 ---
 
-## 1️⃣ Homing – `send_homing()`
+## 1️⃣ Homing – `perform_homing()`
 
 Funkcja, co robi kalibrację osi CoreXY, czyli ustawia nasze silniki na początkowe pozycje.  
 Po wysłaniu komendy `'H'` do Pico funkcja czeka, aż Pico potwierdzi, że homing się skończył.
@@ -22,7 +22,7 @@ controller.send_homing()
 
 ---
 
-## 2️⃣ Ruch figur – `send_move(x_start, y_start, x_end, y_end)`
+## 2️⃣ Ruch figur – `send_move_command(x_start, y_start, x_end, y_end)`
 
 Ta funkcja przesuwa figurę po planszy.
 Parametry to współrzędne startu i końca w milimetrach.
