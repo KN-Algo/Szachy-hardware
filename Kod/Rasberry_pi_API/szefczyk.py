@@ -4,6 +4,9 @@ import time
 from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple
 
+# globalna lista na przesunięte przeszkody
+slid_obstacles: List[Tuple[float, float, int]] = []
+
 try:
     import I2C
 
@@ -20,6 +23,10 @@ except Exception as e:
         def send_move_command(self, fx, fy, tx, ty) -> bool:
             # tylko log – tu można też dodać zapis do pliku
             print(f"[I2C:DUMMY] {fx:.1f} {fy:.1f} -> {tx:.1f} {ty:.1f}")
+            return True
+
+        def send_homing(self):
+            print("homing")
             return True
 
     ControllerClass = DummyI2CMoveController
@@ -145,6 +152,36 @@ def counts_from_fen(fen: str) -> Dict[str, Dict[str, int]]:
     return counts
 
 
+def slide_obstacle_at(
+    file_idx: int, rank_idx: int, axis: str, direction: int, steps: List[Step]
+):
+    """
+    Dodaje krok odsunięcia przeszkadzającej figury wzdłuż osi X lub Y.
+    - file_idx, rank_idx -> współrzędne przeszkadzającej figury
+    - axis -> "x" (ruch w poziomie) lub "y" (ruch w pionie)
+    - direction -> w którą stronę przesunąć figurę (±1)
+    - steps -> lista Step, do której dodajemy ruch Slide
+    """
+    x, y = square_to_coords(idx_to_algebraic(file_idx, rank_idx))
+    if axis == "x":
+        dx = -direction * OBSTACLE_SLIDE
+        steps.append(
+            Step(
+                x, y, x + dx, y, f"Slide {idx_to_algebraic(file_idx, rank_idx)}"
+            ).quantize()
+        )
+    else:
+        dy = -direction * OBSTACLE_SLIDE
+        steps.append(
+            Step(
+                x, y, x, y + dy, f"Slide {idx_to_algebraic(file_idx, rank_idx)}"
+            ).quantize()
+        )
+
+    # przesunięta figura zostanie wycentrowana na końcu w execute_steps
+    slid_obstacles.append((x, y, 0 if axis == "x" else 1))
+
+
 # ================== PARKING WG ZASAD ==================
 def starting_files_for_piece(piece: str, color: str) -> List[int]:
     base = {
@@ -182,150 +219,133 @@ def special_parking_slot_xy(
     return grid_to_mm(file_idx, y_rank)
 
 
-# ================== MECHANIKA: SLIDE + LANE ==================
-def slide_steps_at(x: float, y: float, axis: str, direction: int) -> List[Step]:
-    s: List[Step] = []
-    if axis == "x":
-        dx = direction * OBSTACLE_SLIDE
-        s.append(Step(x, y, x + dx, y, "Slide obstacle").quantize())
-        s.append(Step(x + dx, y, x, y, "Recenter obstacle").quantize())
-    else:
-        dy = direction * OBSTACLE_SLIDE
-        s.append(Step(x, y, x, y + dy, "Slide obstacle").quantize())
-        s.append(Step(x, y + dy, x, y, "Recenter obstacle").quantize())
-    return s
-
-
-def v_segment_with_slides(frm_sq: str, to_sq: str, fen: str) -> List[Step]:
+def hv_slide_with_obstacles(frm_sq: str, to_sq: str, fen: str) -> List[Step]:
+    """
+    Ruch figury z torowaniem przez przesunięcie przeszkód.
+    1. Przesuwa przeszkody w osi X i Y (start + cel segmentów).
+    2. Nasza figura porusza się: V → H → recenter.
+    3. Na końcu przesunięte figury wracają na miejsca w execute_steps.
+    """
     steps: List[Step] = []
     fx, fy = square_to_coords(frm_sq)
     tx, ty = square_to_coords(to_sq)
-    f_idx, r_from = algebraic_to_idx(frm_sq)
-    _, r_to = algebraic_to_idx(to_sq)
+    f_idx_from, r_idx_from = algebraic_to_idx(frm_sq)
+    f_idx_to, r_idx_to = algebraic_to_idx(to_sq)
+    dir_x = +1 if f_idx_from < 4 else -1
+    dir_y = +1 if r_idx_from < 4 else -1
+    # Zajęte pola wg aktualnego FEN
     occupied = get_occupied_from_fen(fen)
-    dir_x = +1 if f_idx < 4 else -1
-    x_lane = fx + dir_x * LANE_OFFSET
-    lo, hi = sorted((r_from, r_to))
-    for r in range(lo + 1, hi):
-        if (f_idx, r) in occupied:
-            ox, oy = grid_to_mm(f_idx, r)
-            steps.append(
-                Step(
-                    fx, fy, ox, oy, f"Approach {idx_to_algebraic(f_idx, r)}"
-                ).quantize()
-            )
-            fx, fy = ox, oy
-            for st in slide_steps_at(ox, oy, "x", dir_x):
-                steps.append(st)
-                fx, fy = st.t_x, st.t_y
-            ofx, ofy = square_to_coords(frm_sq)
-            steps.append(Step(fx, fy, ofx, ofy, "Back to piece").quantize())
-            fx, fy = ofx, ofy
-    steps.append(Step(fx, fy, x_lane, fy, "V: offset").quantize())
-    fx = x_lane
-    steps.append(Step(fx, fy, x_lane, ty, "V: lane").quantize())
-    fy = ty
-    steps.append(Step(fx, fy, tx, ty, "V: recenter").quantize())
-    return steps
 
+    if (f_idx_to, r_idx_to) in occupied:
+        occupied.discard((f_idx_to, r_idx_to))
+    # =================== Zbieranie przeszkód ===================
+    # Przeszkody w osi X (H)
+    x_obstacles = [
+        (f, r_idx_from)
+        for f in range(min(f_idx_from, f_idx_to) + 1, max(f_idx_from, f_idx_to))
+        if (f, r_idx_from) in occupied
+    ] + [
+        (f_idx_to, r)
+        for r in range(min(r_idx_from, r_idx_to), max(r_idx_from, r_idx_to) + 1)
+        if (f_idx_to, r) in occupied
+    ]
 
-def h_segment_with_slides(frm_sq: str, to_sq: str, fen: str) -> List[Step]:
-    steps: List[Step] = []
-    fx, fy = square_to_coords(frm_sq)
-    tx, ty = square_to_coords(to_sq)
-    f_from, r_idx = algebraic_to_idx(frm_sq)
-    f_to, _ = algebraic_to_idx(to_sq)
-    occupied = get_occupied_from_fen(fen)
-    dir_y = +1 if r_idx < 4 else -1
-    y_lane = fy + dir_y * LANE_OFFSET
-    lo, hi = sorted((f_from, f_to))
-    for f in range(lo + 1, hi):
-        if (f, r_idx) in occupied:
-            ox, oy = grid_to_mm(f, r_idx)
-            steps.append(
-                Step(
-                    fx, fy, ox, oy, f"Approach {idx_to_algebraic(f, r_idx)}"
-                ).quantize()
-            )
-            fx, fy = ox, oy
-            for st in slide_steps_at(ox, oy, "y", dir_y):
-                steps.append(st)
-                fx, fy = st.t_x, st.t_y
-            ofx, ofy = square_to_coords(frm_sq)
-            steps.append(Step(fx, fy, ofx, ofy, "Back to piece").quantize())
-            fx, fy = ofx, ofy
-    steps.append(Step(fx, fy, fx, y_lane, "H: offset").quantize())
-    fy = y_lane
-    steps.append(Step(fx, fy, tx, y_lane, "H: lane").quantize())
-    fx = tx
-    steps.append(Step(fx, fy, tx, ty, "H: recenter").quantize())
+    # Przeszkody w osi Y (V)
+    y_obstacles = [
+        (f_idx_to, r)
+        for r in range(min(r_idx_from, r_idx_to) + 1, max(r_idx_from, r_idx_to))
+        if (f_idx_to, r) in occupied
+    ] + [
+        (f, r_idx_from)
+        for f in range(min(f_idx_from, f_idx_to), max(f_idx_from, f_idx_to) + 1)
+        if (f, r_idx_from) in occupied
+    ]
+
+    # =================== Slide przeszkód ===================
+    for f, r in x_obstacles:
+        slide_obstacle_at(
+            f, r, "x", 1, steps
+        )  # kierunek +1, można dynamicznie dobierać
+    for f, r in y_obstacles:
+        slide_obstacle_at(f, r, "y", 1, steps)
+
+    if not x_obstacles and not y_obstacles:
+        steps.append(Step(fx, fy, tx, ty, "Direct move").quantize())
+        return steps
+    # =================== Ruch naszej figury ===================
+    # 1️⃣ Ze startu zejście na szynę poziomą (H)
+    # przesunięcie w osi X do poziomu startu szyny pionowej (poziom lane H)
+    y_lane = (
+        fy + dir_y * -LANE_OFFSET
+    )  # można tu dopasować offset lane, jeśli używasz LANE_OFFSET
+    steps.append(Step(fx, fy, fx, y_lane, "H: descend to H lane").quantize())
+
+    # 2️⃣ Jazda pozioma wzdłuż szyny H do kolumny startu segmentu pionowego
+    x_lane = tx + dir_x * LANE_OFFSET  # kolumna docelowa lane H
+    steps.append(Step(fx, y_lane, x_lane, y_lane, "H: lane horizontal").quantize())
+
+    # 3️⃣ Jazda pionowa wzdłuż szyny V do docelowego rzędu
+    steps.append(Step(x_lane, y_lane, x_lane, ty, "V: lane vertical").quantize())
+
+    # 4️⃣ Recenter na finalnym polu
+    steps.append(Step(x_lane, ty, tx, ty, "Recenter").quantize())
+
     return steps
 
 
 def move_between_squares(frm_sq: str, to_sq: str, fen: str) -> List[Step]:
-    f_from, r_from = algebraic_to_idx(frm_sq)
-    f_to, r_to = algebraic_to_idx(to_sq)
-    s: List[Step] = []
-    if f_from == f_to:
-        s += v_segment_with_slides(frm_sq, to_sq, fen)
-    elif r_from == r_to:
-        s += h_segment_with_slides(frm_sq, to_sq, fen)
-    else:
-        mid = f"{to_sq[0]}{frm_sq[1]}"
-        s += h_segment_with_slides(frm_sq, mid, fen)
-        s += v_segment_with_slides(mid, to_sq, fen)
-    return s
+    """
+    Zastępuje poprzednie segmenty H/V jednym ruchem z torowaniem przeszkód.
+    Funkcja korzysta z hv_slide_with_obstacles.
+    """
+    return hv_slide_with_obstacles(frm_sq, to_sq, fen)
 
 
 # ================== OPERACJE: FIELD <-> PARKING ==================
+
+
 def field_to_parking(square: str, park_x: float, park_y: float, fen: str) -> List[Step]:
+    """
+    Funkcja przesuwa figurę z pola planszy do slotu parkingowego.
+    Wykorzystuje nową funkcję hv_slide_with_obstacles, zamiast
+    osobnych segmentów H/V.
+    """
     steps: List[Step] = []
     f_idx, r_idx = algebraic_to_idx(square)
     px_idx, py_idx = nearest_grid_idx(park_x, park_y)
-    if py_idx in (-1, 8):
-        # do pionowej krawędzi nad/poniżej tego samego file
-        ex, ey = grid_to_mm(f_idx, py_idx)
-        s1 = v_segment_with_slides(
-            square, idx_to_algebraic(f_idx, max(0, min(7, py_idx))), fen
-        )
-        if s1:
-            s1[-1] = Step(s1[-2].t_x, s1[-2].t_y, ex, ey, "V: to edge").quantize()
-        steps += s1
-        steps.append(Step(ex, ey, park_x, park_y, "Offboard: to parking").quantize())
-    else:
-        ex, ey = grid_to_mm(px_idx, r_idx)
-        s1 = h_segment_with_slides(
-            square, idx_to_algebraic(max(0, min(7, px_idx)), r_idx), fen
-        )
-        if s1:
-            s1[-1] = Step(s1[-2].t_x, s1[-2].t_y, ex, ey, "H: to edge").quantize()
-        steps += s1
-        steps.append(Step(ex, ey, park_x, park_y, "Offboard: to parking").quantize())
+
+    # docelowy punkt w gridzie (przy krawędzi planszy lub w pobliżu parkingu)
+    ex, ey = grid_to_mm(px_idx, py_idx)
+
+    # generujemy tor z uwzględnieniem przeszkód w obu osiach
+    # od pola źródłowego do docelowego punktu na planszy (przed offboard)
+    target_sq = idx_to_algebraic(max(0, min(7, px_idx)), max(0, min(7, py_idx)))
+    steps += hv_slide_with_obstacles(square, target_sq, fen)
+
+    # następnie ruch poza planszę do dokładnego slotu parkingowego
+    steps.append(Step(ex, ey, park_x, park_y, "Offboard: to parking").quantize())
+
     return steps
 
 
 def parking_to_field(park_x: float, park_y: float, to_sq: str, fen: str) -> List[Step]:
+    """
+    Funkcja przesuwa figurę z parkingu z powrotem na planszę.
+    Wykorzystuje nową funkcję hv_slide_with_obstacles zamiast
+    osobnych segmentów H/V.
+    """
     steps: List[Step] = []
-    f_idx, r_idx = algebraic_to_idx(to_sq)
+
+    # 1️⃣ Offboard: z parkingu do najbliższego punktu na planszy
     px_idx, py_idx = nearest_grid_idx(park_x, park_y)
-    if py_idx in (-1, 8):
-        ex, ey = grid_to_mm(f_idx, py_idx)
-        steps.append(Step(park_x, park_y, ex, ey, "Offboard: from parking").quantize())
-        s2 = v_segment_with_slides(
-            idx_to_algebraic(f_idx, max(0, min(7, py_idx))), to_sq, fen
-        )
-        if s2:
-            s2[0] = Step(ex, ey, s2[0].t_x, s2[0].t_y, "V: from edge").quantize()
-        steps += s2
-    else:
-        ex, ey = grid_to_mm(px_idx, r_idx)
-        steps.append(Step(park_x, park_y, ex, ey, "Offboard: from parking").quantize())
-        s2 = h_segment_with_slides(
-            idx_to_algebraic(max(0, min(7, px_idx)), r_idx), to_sq, fen
-        )
-        if s2:
-            s2[0] = Step(ex, ey, s2[0].t_x, s2[0].t_y, "H: from edge").quantize()
-        steps += s2
+    f_idx, r_idx = algebraic_to_idx(to_sq)
+    ex, ey = grid_to_mm(px_idx, py_idx)
+    steps.append(Step(park_x, park_y, ex, ey, "Offboard: from parking").quantize())
+
+    # 2️⃣ Ruch po planszy z uwzględnieniem przeszkód
+    start_sq = idx_to_algebraic(max(0, min(7, px_idx)), max(0, min(7, py_idx)))
+    steps += hv_slide_with_obstacles(start_sq, to_sq, fen)
+
     return steps
 
 
@@ -443,30 +463,36 @@ def compress_zero_len(steps: List[Step], eps: float = 1e-6) -> List[Step]:
 
 
 def execute_steps(controller, steps: List[Step], delay_s: float = 0.03):
+    global slid_obstacles
     steps = compress_zero_len(steps)
-    last_to = None
+
     for s in steps:
         s.quantize()
-        if last_to and (
-            abs(last_to[0] - s.f_x) > 1e-6 or abs(last_to[1] - s.f_y) > 1e-6
-        ):
-            sync = Step(last_to[0], last_to[1], s.f_x, s.f_y, "Sync").quantize()
-            print_step(sync)
-            ok = controller.send_move_command(
-                q(sync.f_x), q(sync.f_y), q(sync.t_x), q(sync.t_y)
-            )
-            if not ok:
-                print("❌ I2C error (sync)")
-                return
-            time.sleep(delay_s)
         print_step(s)
+
         ok = controller.send_move_command(q(s.f_x), q(s.f_y), q(s.t_x), q(s.t_y))
         if not ok:
             print("❌ I2C error")
             return
         time.sleep(delay_s)
-        last_to = (s.t_x, s.t_y)
         controller.send_homing()
+
+    # 👇 dopiero teraz recenter wszystkich przesuniętych przeszkód
+    for ox, oy, axis in slid_obstacles:
+        if axis == 0:  # X-axis
+            dx = OBSTACLE_SLIDE
+            ok = controller.send_move_command(ox + dx, oy, ox, oy)
+        else:  # Y-axis
+            dy = OBSTACLE_SLIDE
+            ok = controller.send_move_command(ox, oy + dy, ox, oy)
+
+        if not ok:
+            print("❌ I2C error (recenter)")
+            return
+        time.sleep(delay_s)
+        controller.send_homing()
+
+    slid_obstacles = []
 
 
 # ================== POKAZ: MAT SZEWCZYKA + RESET ==================
