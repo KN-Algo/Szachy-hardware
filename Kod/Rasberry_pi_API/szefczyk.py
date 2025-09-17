@@ -466,6 +466,7 @@ def execute_steps(controller, steps: List[Step], delay_s: float = 0.03):
             return
         time.sleep(delay_s)
         last_to = (s.t_x, s.t_y)
+        controller.send_homing()
 
 
 # ================== POKAZ: MAT SZEWCZYKA + RESET ==================
@@ -520,6 +521,7 @@ def main():
 
     print("♟️ Start pokazu: mat szewczyka")
     current_fen = START_FEN
+    controller.send_homing()
     for i, msg in enumerate(GAME, 1):
         print("\n" + "=" * 60)
         print(f"Ruch {i}: {msg['from']} → {msg['to']}  (type={msg.get('type')})")
