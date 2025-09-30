@@ -1,418 +1,261 @@
-"""
-I2C Move Command Library
-========================
-
-A Python library for controlling robotic movement via I2C communication.
-Provides functions for sending move commands, connection testing, and homing operations.
-
-Author: Your Name
-Version: 1.0.0
-"""
-
-import smbus2
+import serial
 import time
-import struct
 
+class PicoController:
+    def __init__(self, port='/dev/ttyAMA0', baudrate=115200):
+        """
+        Inicjalizacja połączenia z Raspberry Pi Pico.
 
-class I2CMoveController:
-    """
-    I2C Move Controller for robotic systems.
-    
-    This class provides methods to communicate with robotic devices over I2C,
-    including movement commands, homing operations, and connection testing.
-    """
-    
-    def __init__(self, bus_number=1, slave_address=0x42):
-        """
-        Initialize the I2C Move Controller.
-        
         Args:
-            bus_number (int): I2C bus number (default: 1)
-            slave_address (int): I2C slave device address (default: 0x42)
+            port (str): Port szeregowy do komunikacji z Pico.
+            baudrate (int): Prędkość transmisji szeregowej.
         """
-        self.bus = smbus2.SMBus(bus_number)
-        self.slave_addr = slave_address
-    
-    def send_move_command(self, x_start, y_start, x_end, y_end, timeout=15.0, poll_interval=0.5):
+        self.serial = serial.Serial(
+            port=port,
+            baudrate=baudrate,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            bytesize=serial.EIGHTBITS,
+            timeout=2
+        )
+        time.sleep(2)  # Daj czas na inicjalizację
+        print(f"✅ Połączono z Pico na {port}")
+
+        # Odczytaj wiadomość READY
+        response = self.wait_for_response()
+        print(f"Pico: {response}")
+
+    def send_command(self, command):
         """
-        Send a move command to the robotic device and wait for completion.
-        
-        This function sends coordinates for a movement from start position to end position,
-        then polls the device status until the movement is complete or timeout occurs.
-        
+        Wyślij komendę do Pico.
+
         Args:
-            x_start (float): Starting X coordinate
-            y_start (float): Starting Y coordinate
-            x_end (float): Ending X coordinate
-            y_end (float): Ending Y coordinate
-            timeout (float): Maximum time to wait for completion in seconds (default: 15.0)
-            poll_interval (float): Time between status polls in seconds (default: 0.5)
-        
+            command (str): Komenda w formacie tekstowym.
+        """
+        cmd = f"{command}\n"
+        self.serial.write(cmd.encode('utf-8'))
+        print(f"📤 Wysłano: {command}")
+
+    def wait_for_response(self, timeout=5):
+        """
+        Czekaj na odpowiedź od Pico.
+
+        Args:
+            timeout (float): Maksymalny czas oczekiwania w sekundach.
+
         Returns:
-            bool: True if movement completed successfully, False otherwise
-            
-        Raises:
-            Exception: If communication error occurs during command transmission
+            str: Odpowiedź od Pico lub "TIMEOUT" jeśli nie otrzymano odpowiedzi.
         """
-        try:
-            # Prepare data (little endian float format)
-            command_byte = ord('M')
-            data = struct.pack('<ffff', x_start, y_start, x_end, y_end)
-            
-            # Send command with data
-            self.bus.write_i2c_block_data(self.slave_addr, command_byte, list(data))
-            
-            # Poll for completion
-            max_attempts = int(timeout / poll_interval)
-            attempt = 0
-            start_time = time.time()
-            
-            while attempt < max_attempts:
-                attempt += 1
-                time.sleep(poll_interval)
-                
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if self.serial.in_waiting > 0:
+                response = self.serial.readline().decode('utf-8').strip()
+                return response
+            time.sleep(0.01)
+        return "TIMEOUT"
+
+    def move_to(self, start_x, start_y, end_x, end_y, electromagnet=False):
+        """
+        Przesuń głowicę od pozycji startowej do końcowej.
+
+        Args:
+            start_x (float): Pozycja startowa X w mm.
+            start_y (float): Pozycja startowa Y w mm.
+            end_x (float): Pozycja końcowa X w mm.
+            end_y (float): Pozycja końcowa Y w mm.
+            electromagnet (bool): True jeśli elektromagnes ma być włączony podczas ruchu.
+
+        Returns:
+            bool: True jeśli ruch zakończony sukcesem, False w przeciwnym wypadku.
+        """
+        magnet_flag = 1 if electromagnet else 0
+        command = f"MOVE:{start_x},{start_y},{end_x},{end_y},{magnet_flag}"
+        self.send_command(command)
+
+        # Czekaj na MOVE_ACK
+        ack = self.wait_for_response()
+        print(f"📥 Pico: {ack}")
+
+        if ack == "MOVE_ACK":
+            done = self.wait_for_response(timeout=30)
+            print(f"📥 Pico: {done}")
+            return done == "MOVE_DONE"
+        return False
+
+    def homing(self):
+        """
+        Wykonaj procedurę homing, ustawiając głowicę w pozycji (0,0).
+
+        Returns:
+            bool: True jeśli homing zakończony sukcesem, False w przeciwnym wypadku.
+        """
+        print("🏠 Rozpoczynam homing...")
+        self.send_command("HOMING")
+
+        ack = self.wait_for_response()
+        print(f"📥 Pico: {ack}")
+
+        if ack == "HOMING_ACK":
+            # Czekaj na start
+            start = self.wait_for_response(timeout=10)
+            print(f"📥 Pico: {start}")
+
+            # Czekaj na zakończenie
+            done = self.wait_for_response(timeout=30)
+            print(f"📥 Pico: {done}")
+            return done == "HOMING_DONE"
+        return False
+
+    def read_board(self):
+        """
+        Pobierz status wszystkich pól szachownicy.
+
+        Returns:
+            list: Lista słowników [{'field': 'A1', 'status': True/False}, ...] 
+                  lub None jeśli wystąpił problem z odczytem.
+        """
+        print("📋 Pobieram status szachownicy...")
+        self.send_command("SEND_BOARD")
+
+        ack = self.wait_for_response()
+        print(f"📥 Pico: {ack}")
+
+        if ack != "BOARD_ACK":
+            return None
+
+        board_data = []
+
+        # Czekaj na BOARD_START
+        start = self.wait_for_response()
+        print(f"📥 Pico: {start}")
+
+        if start != "BOARD_START":
+            return None
+
+        # Odczytuj dane pól
+        while True:
+            response = self.wait_for_response(timeout=10)
+            print(f"📥 Pico: {response}")
+
+            if response == "BOARD_END":
+                break
+
+            if response.startswith("FIELD:"):
                 try:
-                    response_byte = self.bus.read_byte(self.slave_addr)
-                    
-                    if response_byte == ord('M'):  # Movement completed
-                        return True
-                    elif response_byte == ord('W'):  # Work in progress
-                        continue
-                    elif response_byte == ord('E'):  # Error occurred
-                        return False
-                    # Continue polling for unexpected responses
-                        
-                except Exception:
-                    # Continue polling on read errors
-                    continue
-            
-            # Timeout occurred
-            return False
-            
-        except Exception as e:
-            raise Exception(f"Failed to send move command: {e}")
-    
-    def test_connection(self):
+                    field_str, status_str = response[6:].split(",")
+                    status = bool(int(status_str))
+                    board_data.append({'field': field_str, 'status': status})
+                except Exception as e:
+                    print(f"⚠️ Błąd parsowania: {response} ({e})")
+
+        return board_data
+
+    def set_led(self, color, state):
         """
-        Test basic I2C connection to the device.
-        
-        Attempts to establish communication with the slave device by sending
-        a simple byte write operation.
-        
-        Returns:
-            bool: True if connection is successful, False otherwise
-        """
-        try:
-            self.bus.write_byte(self.slave_addr, 0x00)
-            return True
-        except Exception:
-            return False
-    
-    def perform_homing(self, timeout=30.0, poll_interval=0.5):
-        """
-        Perform homing operation on the robotic device.
-        
-        Sends a homing command and waits for completion. Homing typically
-        moves the device to its reference/home position and may take considerable time.
-        
+        Sterowanie LEDami dla figur białych lub czarnych.
+
         Args:
-            timeout (float): Maximum time to wait for homing completion in seconds (default: 30.0)
-            poll_interval (float): Time between status polls in seconds (default: 0.5)
-        
+            color (str): 'WHITE' lub 'BLACK'
+            state (str): 'ON' lub 'OFF'
+
         Returns:
-            bool: True if homing completed successfully, False otherwise
-            
-        Raises:
-            Exception: If communication error occurs during homing command transmission
+            bool: True po wysłaniu komendy.
         """
-        try:
-            # Send homing command
-            command_byte = ord('H')
-            self.bus.write_byte(self.slave_addr, command_byte)
-            
-            # Poll for completion
-            max_attempts = int(timeout / poll_interval)
-            attempt = 0
-            
-            while attempt < max_attempts:
-                attempt += 1
-                time.sleep(poll_interval)
-                
-                try:
-                    response_byte = self.bus.read_byte(self.slave_addr)
-                    
-                    if response_byte == ord('H'):  # Homing completed
-                        return True
-                    elif response_byte == ord('W'):  # Work in progress
-                        continue
-                    elif response_byte == ord('E'):  # Error occurred
-                        return False
-                    # Continue polling for unexpected responses
-                        
-                except Exception:
-                    # Continue polling on read errors
-                    continue
-            
-            # Timeout occurred
-            return False
-            
-        except Exception as e:
-            raise Exception(f"Failed to perform homing: {e}")
-    
-    def get_device_status(self):
+        command = f"LED:{color},{state}"
+        self.send_command(command)
+
+        ack = self.wait_for_response()
+        print(f"📥 Pico: {ack}")
+
+        response = self.wait_for_response()
+        print(f"📥 Pico: {response}")
+        return True
+
+    def get_status(self):
         """
-        Get current status of the robotic device.
-        
-        Reads a single status byte from the device and interprets it.
-        
+        Pobierz aktualną pozycję głowicy.
+
         Returns:
-            tuple: (status_byte, status_description) where:
-                - status_byte (int): Raw status byte received from device
-                - status_description (str): Human-readable status description
-                
-        Raises:
-            Exception: If communication error occurs during status read
+            dict: {'x': float, 'y': float} z aktualnymi współrzędnymi,
+                  None jeśli odczyt nie powiódł się.
         """
-        try:
-            status_byte = self.bus.read_byte(self.slave_addr)
-            
-            # Interpret status codes
-            status_descriptions = {
-                ord('M'): 'Movement completed',
-                ord('H'): 'Homing completed', 
-                ord('W'): 'Work in progress',
-                ord('E'): 'Error state',
-                ord('I'): 'Idle/Ready'
-            }
-            
-            description = status_descriptions.get(status_byte, f'Unknown status (code: {status_byte})')
-            return status_byte, description
-            
-        except Exception as e:
-            raise Exception(f"Failed to read device status: {e}")
-    
+        self.send_command("STATUS")
+        response = self.wait_for_response()
+        print(f"📥 Pico: {response}")
+
+        if response.startswith("POS:"):
+            coords = response.split(":")[1].split(",")
+            return {'x': float(coords[0]), 'y': float(coords[1])}
+        return None
+
     def close(self):
         """
-        Close the I2C bus connection.
-        
-        Should be called when finished using the controller to properly
-        release the I2C bus resources.
+        Zamknij połączenie z Raspberry Pi Pico.
         """
-        if hasattr(self, 'bus') and self.bus:
-            self.bus.close()
-
-    def read_board(self, timeout=5.0, poll_interval=0.1):
-        """
-        Read the 8x8 board state from the robotic device.
-
-        Sends the 'B' command to request a board scan, then waits for and
-        retrieves 65 bytes: 1 status byte + 64 board bytes.
-
-        Args:
-            timeout (float): Maximum time to wait for completion in seconds (default: 5.0)
-            poll_interval (float): Time between polls when waiting for data (default: 0.1)
-
-        Returns:
-            tuple: (status_byte, board) where:
-                - status_byte (int): ASCII code of status ('R' expected)
-                - board (list[list[int]]): 8x8 board as integers (0–255)
-
-        Raises:
-            Exception: If communication fails or timeout occurs
-        """
-        try:
-            # Wyślij komendę 'B'
-            command_byte = ord('B')
-            self.bus.write_byte(self.slave_addr, command_byte)
-
-            # Poczekaj na odpowiedź
-            start_time = time.time()
-            while True:
-                try:
-                    # Odczytaj pierwszy bajt (status)
-                    status_byte = self.bus.read_byte(self.slave_addr)
-
-                    if status_byte == ord('R'):
-                        # Odczytaj pozostałe 64 bajty tablicy
-                        data = self.bus.read_i2c_block_data(self.slave_addr, 0, 64)
-
-                        # Zamień na tablicę 8x8
-                        board = [data[i*8:(i+1)*8] for i in range(8)]
-                        return status_byte, board
-                    elif status_byte == ord('W'):
-                        # Urządzenie jeszcze pracuje – poczekaj
-                        time.sleep(poll_interval)
-                        continue
-                    elif status_byte == ord('E'):
-                        raise Exception("Device reported error during board scan")
-                    else:
-                        # Niespodziewany bajt – spróbuj ponownie aż do timeoutu
-                        time.sleep(poll_interval)
-
-                except Exception:
-                    # Jeśli nie uda się odczytać – spróbuj ponownie
-                    if time.time() - start_time > timeout:
-                        raise Exception("Timeout waiting for board scan response")
-                    time.sleep(poll_interval)
-
-        except Exception as e:
-            raise Exception(f"Failed to read board: {e}")
+        self.serial.close()
+        print("🔌 Połączenie zamknięte")
 
 
+def demo_program():
+    """Program demonstracyjny pokazujący użycie klasy PicoController."""
+    pico = PicoController()
 
-# Convenience functions for backward compatibility and ease of use
-def create_controller(bus_number=1, slave_address=0x42):
-    """
-    Create and return an I2CMoveController instance.
-    
-    Args:
-        bus_number (int): I2C bus number (default: 1)
-        slave_address (int): I2C slave device address (default: 0x42)
-    
-    Returns:
-        I2CMoveController: Configured controller instance
-    """
-    return I2CMoveController(bus_number, slave_address)
-
-
-# Test and demonstration functions
-def run_connection_test(controller=None, verbose=True):
-    """
-    Test function to verify I2C connection and basic functionality.
-    
-    This function performs a series of tests including connection verification,
-    homing operation, and sample movement commands to validate the system.
-    
-    Args:
-        controller (I2CMoveController, optional): Controller instance to test.
-                                                If None, creates a new one.
-        verbose (bool): Whether to print detailed test progress (default: True)
-    
-    Returns:
-        dict: Test results containing success status and details for each test
-    """
-    if controller is None:
-        controller = create_controller()
-    
-    results = {
-        'connection': {'success': False, 'details': ''},
-        'homing': {'success': False, 'details': ''},
-        'movement': {'success': False, 'details': ''},
-        'status_read': {'success': False, 'details': ''}
-    }
-    
-    if verbose:
-        print("🔍 Starting I2C Move Controller Tests")
-        print("=" * 40)
-    
-    # Test 1: Connection
-    if verbose:
-        print("1. Testing connection...")
-    
     try:
-        if controller.test_connection():
-            results['connection'] = {'success': True, 'details': 'Connection established successfully'}
-            if verbose:
-                print("   ✅ Connection OK")
-        else:
-            results['connection'] = {'success': False, 'details': 'Failed to establish connection'}
-            if verbose:
-                print("   ❌ Connection failed")
-                return results
-    except Exception as e:
-        results['connection'] = {'success': False, 'details': f'Connection error: {e}'}
-        if verbose:
-            print(f"   ❌ Connection error: {e}")
-        return results
-    
-    # Test 2: Status reading
-    if verbose:
-        print("2. Testing status read...")
-    
-    try:
-        status_byte, status_desc = controller.get_device_status()
-        results['status_read'] = {'success': True, 'details': f'Status: {status_desc} (code: {status_byte})'}
-        if verbose:
-            print(f"   ✅ Status read OK: {status_desc}")
-    except Exception as e:
-        results['status_read'] = {'success': False, 'details': f'Status read error: {e}'}
-        if verbose:
-            print(f"   ❌ Status read error: {e}")
-    
-    # Test 3: Homing
-    if verbose:
-        print("3. Testing homing (may take up to 30 seconds)...")
-    
-    try:
-        if controller.perform_homing(timeout=30.0):
-            results['homing'] = {'success': True, 'details': 'Homing completed successfully'}
-            if verbose:
-                print("   ✅ Homing completed")
-        else:
-            results['homing'] = {'success': False, 'details': 'Homing timeout or error'}
-            if verbose:
-                print("   ❌ Homing failed or timeout")
-    except Exception as e:
-        results['homing'] = {'success': False, 'details': f'Homing error: {e}'}
-        if verbose:
-            print(f"   ❌ Homing error: {e}")
-    
-    # Test 4: Sample movement
-    if verbose:
-        print("4. Testing sample movement...")
-    
-    try:
-        if controller.send_move_command(0.0, 0.0, 10.0, 10.0, timeout=15.0):
-            results['movement'] = {'success': True, 'details': 'Sample movement completed successfully'}
-            if verbose:
-                print("   ✅ Movement completed")
-        else:
-            results['movement'] = {'success': False, 'details': 'Movement timeout or error'}
-            if verbose:
-                print("   ❌ Movement failed or timeout")
-    except Exception as e:
-        results['movement'] = {'success': False, 'details': f'Movement error: {e}'}
-        if verbose:
-            print(f"   ❌ Movement error: {e}")
-    
-    if verbose:
-        print("\n📋 Test Summary:")
-        for test_name, result in results.items():
-            status = "✅ PASS" if result['success'] else "❌ FAIL"
-            print(f"   {test_name.capitalize()}: {status}")
-        print("=" * 40)
-    
-    return results
+        # 1. Homing
+        print("\n=== TEST 1: HOMING ===")
+        pico.homing()
+        time.sleep(1)
 
+        # 2. Sprawdź pozycję
+        print("\n=== TEST 2: SPRAWDZENIE POZYCJI ===")
+        status = pico.get_status()
+        print(f"Aktualna pozycja: {status}")
+        time.sleep(1)
 
-# Example usage and demonstration
-if __name__ == "__main__":
-    print("I2C Move Controller Library - Test Mode")
-    print("=" * 50)
-    
-    # Create controller instance
-    try:
-        controller = create_controller()
-        
-        # Run comprehensive tests
-        test_results = run_connection_test(controller, verbose=True)
-        
-        # Check if all tests passed
-        all_passed = all(result['success'] for result in test_results.values())
-        
-        if all_passed:
-            print("\n🎉 All tests PASSED! Library is ready for use.")
-        else:
-            print("\n⚠️  Some tests FAILED. Check hardware connections and device status.")
-        
+        # 3. Ruch bez elektromagnesu
+        print("\n=== TEST 3: RUCH BEZ ELEKTROMAGNESU ===")
+        pico.move_to(0.0, 0.0, 50.0, 50.0, electromagnet=False)
+        time.sleep(1)
+
+        # 4. Włącz białe LEDy
+        print("\n=== TEST 4: BIAŁE LEDY ===")
+        pico.set_led('WHITE', 'ON')
+        time.sleep(2)
+        pico.set_led('WHITE', 'OFF')
+        time.sleep(1)
+
+        # 5. Ruch z elektromagnesem
+        print("\n=== TEST 5: RUCH Z ELEKTROMAGNESEM ===")
+        pico.move_to(50.0, 50.0, 100.0, 100.0, electromagnet=True)
+        time.sleep(1)
+
+        # 6. Włącz czarne LEDy
+        print("\n=== TEST 6: CZARNE LEDY ===")
+        pico.set_led('BLACK', 'ON')
+        time.sleep(2)
+        pico.set_led('BLACK', 'OFF')
+        time.sleep(1)
+
+        # 7. Pobierz status szachownicy
+        print("\n=== TEST 7: STATUS SZACHOWNICY ===")
+        board = pico.read_board()
+        if board:
+            print(f"Otrzymano dane dla {len(board)} pól")
+            for field in board[:64]:
+                print(f"  Pole {field['field']}: {'AKTYWNE' if field['status'] else 'NIEAKTYWNE'}")
+
+        # 8. Powrót do (0,0)
+        print("\n=== TEST 8: POWRÓT DO HOME ===")
+        pico.homing()
+
+        print("\n✅ Demo zakończone!")
+
     except KeyboardInterrupt:
-        print("\n👋 Test interrupted by user")
-    except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
+        print("\n⚠️ Przerwano przez użytkownika")
     finally:
-        # Clean up
-        try:
-            controller.close()
-        except:
-            pass
-        print("\n🏁 Test completed")
+        pico.close()
+
+
+if __name__ == "__main__":
+    print("=== RASPBERRY PI 5 - MASTER CONTROL ===\n")
+    demo_program()
