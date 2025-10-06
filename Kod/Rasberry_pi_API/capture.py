@@ -19,11 +19,6 @@ from steps import Step
 FILE_TO_IDX = {c: i for i, c in enumerate(FILES)}
 
 
-def left_file_index_for(color: str) -> int:
-    # lewa z perspektywy koloru
-    return 0 if color == "white" else 7
-
-
 def right_file_index_for(color: str) -> int:
     return 7 if color == "white" else 0
 
@@ -57,7 +52,7 @@ def starting_files_for_piece(piece: str, color: str) -> List[int]:
     """
     p = piece.lower()
     if p == "rook":
-        lst = [left_file_index_for(color), right_file_index_for(color)]
+        lst = [0, 8]  # a, g
     elif p == "knight":
         lst = [1, 6]  # b, g
     elif p == "bishop":
@@ -196,13 +191,13 @@ def capture_move(msg: dict, obstacles: list) -> List[Step]:
             park_x + LANE_OFFSET,
             ty + LANE_OFFSET,
             park_x + LANE_OFFSET,
-            park_y + LANE_OFFSET,
+            park_y,
             "slide on V lane",
         ),
         Step(
             "recenter on parking",
             park_x + LANE_OFFSET,
-            park_y + LANE_OFFSET,
+            park_y,
             park_x,
             park_y,
             f"recenter piece on parking",
