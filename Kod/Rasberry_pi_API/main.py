@@ -1,9 +1,14 @@
 import json
+import threading
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple
 
-import config
+import chess
 import paho.mqtt.client as mqtt
+import paho.mqtt.publish as publish
+
+import config
 from capture import capture_move
 from castle import castling_move
 from obstacles import obstacles
@@ -13,9 +18,12 @@ from square_to_cords import square_to_coords
 from standard_move import standard_move
 from steps import Step
 
-# controller = I2C.I2CMoveController(bus_number=1, slave_address=0x42)
-
-
+status_msg = {"status": "ready"}
+last_board = dict()
+board = dict()
+from_field = []
+to_field = None
+current_fen = config.START_FEN
 try:
     import UART
 
@@ -38,6 +46,10 @@ except Exception as e:
             print("homing")
             return True
 
+        def read_board(self):
+            print("reading")
+            return dict()
+
     PicoClass = DummyI2CMoveController
 
 pico = PicoClass()
@@ -45,18 +57,123 @@ pico = PicoClass()
 pico.homing()
 
 
+def board_compare():
+    global last_board
+    global board
+    global from_field
+    global to_field
+
+    # Zmieniamy listy na słowniki { 'A1': True, ... } dla szybszego porównania
+    prev_map = {item["field"].upper(): item["status"] for item in last_board}
+    new_map = {item["field"].upper(): item["status"] for item in board}
+
+    # Przeglądamy wszystkie pola
+    for field in prev_map:
+        prev_status = prev_map[field]
+        new_status = new_map.get(field)
+
+        if prev_status != new_status:
+            if prev_status is True and new_status is False:
+                from_field.append(field.lower())
+            elif prev_status is False and new_status is True:
+                to_field = field.lower()
+
+    return 0
+
+
+def board_status():
+
+    global status_msg
+    global last_board
+    global board
+    global from_field
+    global to_field
+    global current_fen
+
+    board = pico.read_board()
+    last_board = board
+
+    while True:
+
+        board_compare()
+
+        # Jeśli wykryto ruch
+        if from_field:
+            fen_board = chess.Board(current_fen)
+            while True:
+                last_board = board
+                time.sleep(0.3)
+                board = pico.read_board()
+
+                board_compare()
+
+                if to_field:
+                    status_msg = {"from": from_field[0], "to": to_field}
+                    last_board = board
+                    from_field = []
+                    to_field = None
+                    client.publish("move/player", status_msg)
+
+                    fen_move = chess.Move.from_uci(
+                        status_msg["from"] + status_msg["to"]
+                    )
+                    try:
+                        fen_board.push(fen_move)
+                    except ValueError:
+                        print("Nielegalny ruch, FEN nie zmieniony.")
+
+                    break
+
+                if len(from_field) >= 2:
+                    last_board = board
+                    while True:
+                        time.sleep(0.3)
+                        board = pico.read_board()
+
+                        board_compare()
+
+                        if to_field:
+                            status_msg = {"from": from_field[1], "to": to_field}
+                            last_board = board
+                            from_field = []
+                            to_field = None
+                            client.publish("move/player", status_msg)
+
+                            fen_move = chess.Move.from_uci(
+                                status_msg["from"] + status_msg["to"]
+                            )
+                            try:
+                                fen_board.push(fen_move)
+                            except ValueError:
+                                print("Nielegalny ruch, FEN nie zmieniony.")
+
+                            break
+
+                    break
+            current_fen = fen_board
+        board = pico.read_board()
+        time.sleep(0.3)
+
+
 def on_message(client, userdata, msg):
+
+    global status_msg
+    global current_fen
+
     try:
         payload = msg.payload.decode()
         data = json.loads(payload)
         print("✅ Otrzymano:", data)
 
-        steps = None
+        steps = []
         move_type = None
         move_type = data.get("type")
+        if data["action"]:
+            move_type = None
 
         obstacles_list = None
         obstacles_list = obstacles(data)
+
         match move_type:
             case None:
                 print("✅standard✅")
@@ -76,17 +193,26 @@ def on_message(client, userdata, msg):
             case _:
                 pass
 
+        status_msg["status"] = "moving"
+        client.publish("status/raspi", status_msg)
+
         for step in steps:
             print(f"➡️ {step.note}")
 
-            # ok = controller.send_move_command(step.f_x, step.f_y, step.t_x, step.t_y)
+            ok = pico.move_to(step.f_x, step.f_y, step.t_x, step.t_y)
             ok = True
             print(step.f_x, step.f_y, step.t_x, step.t_y)
             if not ok:
                 print("❌ Błąd ruchu I2C")
                 break
 
+        current_fen = data["fen"]
+        status_msg["status"] = "ready"
+        client.publish("status/raspi", status_msg)
+
     except Exception as e:
+        status_msg["status"] = "error"
+        client.publish("status/raspi", status_msg)
         print(e)
 
 
@@ -94,9 +220,18 @@ def on_message(client, userdata, msg):
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.connect("localhost", 1883)
 client.subscribe("move/raspi")
+client.subscribe("move/raspi/reject")
+client.subscribe("status/raspi")
+client.subscribe("move/player")
 client.on_message = on_message
 
+
 print("🔄 Nasłuchiwanie na topicu: move/raspi...")
+
+
+board_thread = threading.Thread(target=board_status, daemon=True)
+
+board_thread.start()
 
 try:
     client.loop_forever()
