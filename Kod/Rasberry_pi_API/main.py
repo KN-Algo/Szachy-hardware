@@ -24,6 +24,9 @@ board = dict()
 from_field = []
 to_field = None
 current_fen = config.START_FEN
+
+print("test")
+
 try:
     import UART
 
