@@ -195,7 +195,6 @@ def on_message(client, userdata, msg):
 
             ok = pico.move_to(step.f_x, step.f_y, step.t_x, step.t_y)
             ok = True
-            print(step.f_x, step.f_y, step.t_x, step.t_y)
             if not ok:
                 print("❌ Błąd ruchu I2C")
                 break

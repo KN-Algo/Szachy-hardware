@@ -14,7 +14,7 @@ def standard_move(frm, to, fen):
     obst = obstacles(frm, to, fen)
 
     x_dir = -1 if fx < tx else 1
-    y_dir = -1 if fy < ty else 1
+    y_dir = 1 if fy < ty else -1
 
     if obst:
         steps = [
