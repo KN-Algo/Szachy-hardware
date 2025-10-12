@@ -11,7 +11,6 @@ import paho.mqtt.publish as publish
 import config
 from capture import capture_move
 from castle import castling_move
-from obstacles import obstacles
 from promotion import promotion_move
 from promotion_capture import promotion_capture_move
 from square_to_cords import square_to_coords
@@ -24,8 +23,6 @@ board = dict()
 from_field = []
 to_field = None
 current_fen = config.START_FEN
-
-print("test")
 
 try:
     import UART
@@ -42,7 +39,7 @@ except Exception as e:
 
         def move_to(self, fx, fy, tx, ty, electromagnet=True) -> bool:
             # tylko log – tu można też dodać zapis do pliku
-            print(f"[I2C:DUMMY] {fx:.1f} {fy:.1f} -> {tx:.1f} {ty:.1f}")
+            print(f"[DUMMY] {fx:.1f} {fy:.1f} -> {tx:.1f} {ty:.1f}")
             return True
 
         def homing(self):
@@ -50,7 +47,6 @@ except Exception as e:
             return True
 
         def read_board(self):
-            print("reading")
             return dict()
 
     PicoClass = DummyI2CMoveController
@@ -171,19 +167,14 @@ def on_message(client, userdata, msg):
         steps = []
         move_type = None
         move_type = data.get("type")
-        if data["action"]:
-            move_type = None
-
-        obstacles_list = None
-        obstacles_list = obstacles(data)
 
         match move_type:
             case None:
                 print("✅standard✅")
-                steps = standard_move(data, obstacles_list)
+                steps = standard_move(data["from"], data["to"], data["fen"])
             case "capture":
                 print("capture move")
-                steps = capture_move(data, obstacles_list)
+                steps = capture_move(data)
             case "castling":
                 print("roszada")
                 steps = castling_move(data)
@@ -197,7 +188,7 @@ def on_message(client, userdata, msg):
                 pass
 
         status_msg["status"] = "moving"
-        client.publish("status/raspi", status_msg)
+        client.publish("status/raspi", json.dumps(status_msg))
 
         for step in steps:
             print(f"➡️ {step.note}")
@@ -211,11 +202,11 @@ def on_message(client, userdata, msg):
 
         current_fen = data["fen"]
         status_msg["status"] = "ready"
-        client.publish("status/raspi", status_msg)
+        client.publish("status/raspi", json.dumps(status_msg))
 
     except Exception as e:
         status_msg["status"] = "error"
-        client.publish("status/raspi", status_msg)
+        client.publish("status/raspi", json.dumps(status_msg))
         print(e)
 
 
@@ -224,8 +215,6 @@ client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.connect("localhost", 1883)
 client.subscribe("move/raspi")
 client.subscribe("move/raspi/reject")
-client.subscribe("status/raspi")
-client.subscribe("move/player")
 client.on_message = on_message
 
 

@@ -8,25 +8,37 @@ BOARD_ORIGIN_Y_MM = 46.2  # Y (rząd 1..8)
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 START_COUNTS = {
-    "pawn": 8,
-    "rook": 2,
-    "knight": 2,
-    "bishop": 2,
-    "queen": 1,
-    "king": 1,
+    "p": 8,
+    "r": 2,
+    "n": 2,
+    "b": 2,
+    "q": 1,
+    "k": 1,
 }
 FEN_SYMBOLS = {
-    "P": ("white", "pawn"),
-    "R": ("white", "rook"),
-    "N": ("white", "knight"),
-    "B": ("white", "bishop"),
-    "Q": ("white", "queen"),
-    "K": ("white", "king"),
-    "p": ("black", "pawn"),
-    "r": ("black", "rook"),
-    "n": ("black", "knight"),
-    "b": ("black", "bishop"),
-    "q": ("black", "queen"),
-    "k": ("black", "king"),
+    "pawn": "p",
+    "rook": "r",
+    "bishop": "b",
+    "knight": "n",
+    "queen": "q",
+    "king": "k",
 }
+
+CEMENTERY_FILES = {
+    "P": ["`1", "`2", "`3", "`4", "`5", "`6", "`7", "`8"],
+    "R": [("a", "-1"), ("h", "-1")],
+    "N": [("b", "-1"), ("g", "-1")],
+    "B": [("c", "-1"), ("f", "-1")],
+    "Q": ("d", "-1"),
+    "K": ("e", "-1"),
+    "p": ["i8", "i7", "i6", "i5", "i4", "i3", "i2", "i1"],
+    "r": ["h9", "a9"],
+    "n": ["g9", "b9"],
+    "b": ["f9", "c9"],
+    "q": "d9",
+    "k": "e9",
+}
+
+
 FILES = "abcdefgh"
+

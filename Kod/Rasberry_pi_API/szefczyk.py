@@ -1,11 +1,11 @@
 import json
-import config
-
-from obstacles import obstacles
 from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple
+
+import config
 from capture import capture_move
 from castle import castling_move
+from obstacles import obstacles
 from promotion import promotion_move
 from promotion_capture import promotion_capture_move
 from square_to_cords import square_to_coords
@@ -33,7 +33,7 @@ except Exception as e:
         def send_homing(self):
             print("homing")
             return True
-        
+
     ControllerClass = DummyI2CMoveController
 
 
@@ -93,33 +93,33 @@ def main():
         obstacles_list = None
         obstacles_list = obstacles(move)
         match move_type:
-                    case None:
-                        print("✅standard✅")
-                        steps = standard_move(move, obstacles_list)
-                    case "capture":
-                        print("capture move")
-                        steps = capture_move(move, obstacles_list)
-                    case "castling":
-                        print("roszada")
-                        steps = castling_move(move)
-                    case "promotion":
-                        print("promotion")
-                        steps = promotion_move(move)
-                    case "promotion_capture":
-                        print("promotion capture")
-                        steps = promotion_capture_move(move)
-                    case _:
-                        pass
-            
+            case None:
+                print("✅standard✅")
+                steps = standard_move(move, obstacles_list)
+            case "capture":
+                print("capture move")
+                steps = capture_move(move, obstacles_list)
+            case "castling":
+                print("roszada")
+                steps = castling_move(move)
+            case "promotion":
+                print("promotion")
+                steps = promotion_move(move)
+            case "promotion_capture":
+                print("promotion capture")
+                steps = promotion_capture_move(move)
+            case _:
+                pass
+
         for step in steps:
             print(f"➡️ {step.note}")
 
             ok = controller.send_move_command(step.f_x, step.f_y, step.t_x, step.t_y)
             controller.send_homing()
-            #print(step.f_x, step.f_y, step.t_x, step.t_y)
+            # print(step.f_x, step.f_y, step.t_x, step.t_y)
             if not ok:
                 print("❌ Błąd ruchu I2C")
-                break           
+                break
 
     print("\n♟️ reset!")
 
@@ -148,13 +148,13 @@ def main():
             "fen": "rnbqkbnr/pppp2pp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 4",
             "type": None,
         },
-                {
+        {
             "from": "e4",
             "to": "e2",
             "fen": "rnbqkbnr/pppp2pp/8/4p3/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 4",
             "type": None,
         },
-                {
+        {
             "from": "e5",
             "to": "e7",
             "fen": "rnbqkbnr/ppppp1pp/8/8/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 4",
@@ -167,37 +167,38 @@ def main():
         obstacles_list = None
         obstacles_list = obstacles(move)
         match move_type:
-                    case None:
-                        print("✅standard✅")
-                        steps = standard_move(move, obstacles_list)
-                    case "capture":
-                        print("capture move")
-                        steps = capture_move(move, obstacles_list)
-                    case "castling":
-                        print("roszada")
-                        steps = castling_move(move)
-                    case "promotion":
-                        print("promotion")
-                        steps = promotion_move(move)
-                    case "promotion_capture":
-                        print("promotion capture")
-                        steps = promotion_capture_move(move)
-                    case _:
-                        pass
-        
+            case None:
+                print("✅standard✅")
+                steps = standard_move(move, obstacles_list)
+            case "capture":
+                print("capture move")
+                steps = capture_move(move, obstacles_list)
+            case "castling":
+                print("roszada")
+                steps = castling_move(move)
+            case "promotion":
+                print("promotion")
+                steps = promotion_move(move)
+            case "promotion_capture":
+                print("promotion capture")
+                steps = promotion_capture_move(move)
+            case _:
+                pass
+
         for step in steps:
             print(f"➡️ {step.note}")
 
             ok = controller.send_move_command(step.f_x, step.f_y, step.t_x, step.t_y)
             controller.send_homing()
-            #print(step.f_x, step.f_y, step.t_x, step.t_y)
+            # print(step.f_x, step.f_y, step.t_x, step.t_y)
             if not ok:
                 print("❌ Błąd ruchu I2C")
                 break
 
-    ok = controller.send_move_command(431.4, 373.2, 278.8, 307.8)   
+    ok = controller.send_move_command(431.4, 373.2, 278.8, 307.8)
 
     print("\n✅ Koniec pokazu — mat + reset!")
+
 
 if __name__ == "__main__":
     main()
