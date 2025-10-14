@@ -171,7 +171,12 @@ def on_message(client, userdata, msg):
         match move_type:
             case None:
                 print("✅standard✅")
-                steps = standard_move(data["from"], data["to"], data["fen"])
+                frm = data["from"]
+                to = data["to"]
+                fen = data["fen"]
+                if data["action"] == "revert_move":
+                    frm, to = to, frm
+                steps = standard_move(frm, to, fen)
             case "capture":
                 print("capture move")
                 steps = capture_move(data)
@@ -216,6 +221,8 @@ client.subscribe("move/raspi")
 client.subscribe("move/raspi/reject")
 client.on_message = on_message
 
+status_msg["status"] = "ready"
+client.publish("status/raspi", json.dumps(status_msg))
 
 print("🔄 Nasłuchiwanie na topicu: move/raspi...")
 

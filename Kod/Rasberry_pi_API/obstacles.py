@@ -37,8 +37,6 @@ def get_occupied_from_fen(fen: str) -> Set[Tuple[int, int]]:
                 else:
                     occ.add(algebraic_to_idx(dedicated_files))
 
-    print(occ_on_cementery)
-
     return occ
 
 
@@ -60,6 +58,6 @@ def obstacles(frm_sq, to_sq, fen):
         for r in range(min(r_idx_from, r_idx_to), max(r_idx_from, r_idx_to) + 1)
         if (f_idx_to, r) in occupied
     ]
-
+    print(xy_obstacles)
     return xy_obstacles
 
