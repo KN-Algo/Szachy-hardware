@@ -219,6 +219,7 @@ def on_message(client, userdata, msg):
                 break
 
         current_fen = data["fen"]
+        time.sleep(2)
         status_msg["status"] = "ready"
         client.publish("status/raspi", json.dumps(status_msg))
 
@@ -242,9 +243,9 @@ client.publish("status/raspi", json.dumps(status_msg))
 print("🔄 Nasłuchiwanie na topicu: move/raspi...")
 
 
-board_thread = threading.Thread(target=board_status, daemon=True)
+# board_thread = threading.Thread(target=board_status, daemon=True)
 
-board_thread.start()
+# board_thread.start()
 
 try:
     client.loop_forever()
