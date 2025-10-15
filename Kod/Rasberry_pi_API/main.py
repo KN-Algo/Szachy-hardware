@@ -9,6 +9,7 @@ import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
 
 import config
+from board_reset import reset_pieces_to_start
 from capture import capture_move
 from castle import castling_move
 from promotion import promotion_move
@@ -160,9 +161,16 @@ def on_message(client, userdata, msg):
     global current_fen
 
     try:
-        payload = msg.payload.decode()
-        data = json.loads(payload)
-        print("✅ Otrzymano:", data)
+        if msg.topic == "control/restart/external":
+            payload = msg.payload.decode()
+            data = json.loads(payload)
+            print(data)
+            data["type"] = "reset"
+            print("Wykryto reset")
+        else:
+            payload = msg.payload.decode()
+            data = json.loads(payload)
+            print("✅ Otrzymano:", data)
 
         steps = []
         move_type = None
@@ -174,7 +182,7 @@ def on_message(client, userdata, msg):
                 frm = data["from"]
                 to = data["to"]
                 fen = data["fen"]
-                if data["action"] == "revert_move":
+                if "action" == data:
                     frm, to = to, frm
                 steps = standard_move(frm, to, fen)
             case "capture":
@@ -189,6 +197,12 @@ def on_message(client, userdata, msg):
             case "promotion_capture":
                 print("promotion capture")
                 steps = promotion_capture_move(data)
+            case "reset":
+                print("reset")
+                current_fen = (
+                    "r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4"
+                )
+                steps = reset_pieces_to_start(current_fen)
             case _:
                 pass
 
@@ -218,7 +232,8 @@ def on_message(client, userdata, msg):
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.connect("localhost", 1883)
 client.subscribe("move/raspi")
-client.subscribe("move/raspi/reject")
+client.subscribe("move/raspi/rejected")
+client.subscribe("control/restart/external")
 client.on_message = on_message
 
 status_msg["status"] = "ready"
