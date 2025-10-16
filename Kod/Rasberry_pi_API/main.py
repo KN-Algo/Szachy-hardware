@@ -50,11 +50,36 @@ except Exception as e:
         def read_board(self):
             return dict()
 
+        def set_led(self, color, state):
+            print(f"kolor {color} ustawiony na {state}")
+            return True
+
+        def close(self):
+            print("pico con close")
+            return True
+
     PicoClass = DummyI2CMoveController
 
 pico = PicoClass()
 
+led_color = "BLACK"
+new_color = "WHITE"
+
+pico.set_led(led_color, "ON")
+pico.set_led(new_color, "ON")
+
 pico.homing()
+
+pico.set_led(led_color, "OFF")
+pico.set_led(new_color, "OFF")
+
+
+def color_swap():
+    global led_color
+    global new_color
+    pico.set_led(led_color, "OFF")
+    new_color, led_color = led_color, new_color
+    pico.set_led(led_color, "ON")
 
 
 def board_compare():
@@ -167,7 +192,10 @@ def on_message(client, userdata, msg):
             print(data)
             data["type"] = "reset"
             print("Wykryto reset")
+            pico.set_led(new_color, "ON")
         else:
+            if msg.topic != "move/raspi/rejected":
+                color_swap()
             payload = msg.payload.decode()
             data = json.loads(payload)
             print("✅ Otrzymano:", data)
@@ -199,9 +227,6 @@ def on_message(client, userdata, msg):
                 steps = promotion_capture_move(data)
             case "reset":
                 print("reset")
-                current_fen = (
-                    "r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4"
-                )
                 steps = reset_pieces_to_start(current_fen)
             case _:
                 pass
@@ -252,5 +277,8 @@ try:
 except KeyboardInterrupt:
     print("\nPrzerwano przez użytkownika (Ctrl+C). Zamykam...")
 finally:
+    pico.set_led(led_color, "OFF")
+    pico.set_led(new_color, "OFF")
+    pico.close()
     client.disconnect()
     print("MQTT client odłączony. Do zobaczenia 👋")

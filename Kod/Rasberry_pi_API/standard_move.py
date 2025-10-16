@@ -18,24 +18,33 @@ def standard_move(frm, to, fen):
 
     if obst:
         steps = [
-            Step("offset", fx, fy, fx, fy + LANE_OFFSET * y_dir, f"make offset"),
+            Step(
+                "offset", fx, fy, fx, fy + round(LANE_OFFSET * y_dir, 2), f"make offset"
+            ),
             Step(
                 "H slide",
                 fx,
-                fy + LANE_OFFSET * y_dir,
-                tx + LANE_OFFSET * x_dir,
-                fy + LANE_OFFSET * y_dir,
+                fy + round(LANE_OFFSET * y_dir, 2),
+                tx + round(LANE_OFFSET * x_dir, 2),
+                fy + round(LANE_OFFSET * y_dir, 2),
                 f"slide on H lane",
             ),
             Step(
                 "V slide",
-                tx + LANE_OFFSET * x_dir,
-                fy + LANE_OFFSET * y_dir,
-                tx + LANE_OFFSET,
+                tx + round(LANE_OFFSET * x_dir, 2),
+                fy + round(LANE_OFFSET * y_dir, 2),
+                tx + round(LANE_OFFSET * x_dir, 2),
                 ty,
                 "slide on V lane",
             ),
-            Step("recenter", tx + LANE_OFFSET * x_dir, ty, tx, ty, f"recenter piece"),
+            Step(
+                "recenter",
+                tx + round(LANE_OFFSET * x_dir, 2),
+                ty,
+                tx,
+                ty,
+                f"recenter piece",
+            ),
         ]
         return steps
     steps = [Step("move", fx, fy, tx, ty, f"mave a pice from {frm} to {to}")]

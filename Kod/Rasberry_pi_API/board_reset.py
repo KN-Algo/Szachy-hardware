@@ -1,5 +1,7 @@
 from copy import deepcopy
 
+from config import CEMENTERY_FILES, START_COUNTS, START_FEN
+from helpers import captured_counts_from_fen
 from standard_move import standard_move
 from steps import Step
 
@@ -41,22 +43,18 @@ def reset_pieces_to_start(fen: str) -> str:
 
     # 🧩 Pozycje startowe
     start_positions = {
-        "white": {
-            "K": "e1",
-            "Q": "d1",
-            "R": ["a1", "h1"],
-            "N": ["b1", "g1"],
-            "B": ["c1", "f1"],
-            "P": ["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"],
-        },
-        "black": {
-            "k": "e8",
-            "q": "d8",
-            "r": ["a8", "h8"],
-            "n": ["b8", "g8"],
-            "b": ["c8", "f8"],
-            "p": ["a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7"],
-        },
+        "P": ["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"],
+        "R": ["a1", "h1"],
+        "N": ["b1", "g1"],
+        "B": ["c1", "f1"],
+        "Q": ["d1"],
+        "K": ["e1"],
+        "p": ["a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7"],
+        "r": ["a8", "h8"],
+        "n": ["b8", "g8"],
+        "b": ["c8", "f8"],
+        "q": ["d8"],
+        "k": ["e8"],
     }
 
     def square_to_coords(square):
@@ -86,11 +84,11 @@ def reset_pieces_to_start(fen: str) -> str:
 
     def place_on_first_free(piece, color):
         # Pobierz pola startowe (lista lub string)
-        raw_pos = start_positions[color].get(piece)
+        raw_pos = start_positions.get(piece)
         if not raw_pos:
             print(f"⚠️ Brak startowej pozycji dla {piece}")
             return None
-        start_list = raw_pos if isinstance(raw_pos, list) else [raw_pos]
+        start_list = raw_pos
 
         # Walidacja pól
         valid_squares = [
@@ -107,7 +105,7 @@ def reset_pieces_to_start(fen: str) -> str:
 
         check_range = reversed(valid_squares) if color == "white" else valid_squares
         occupied = occupied_white if color == "white" else occupied_black
-
+        print(occupied)
         for sq in check_range:
             if sq not in occupied:
                 r, c = square_to_coords(sq)
@@ -127,11 +125,9 @@ def reset_pieces_to_start(fen: str) -> str:
             color = "white" if piece.isupper() else "black"
 
             # sprawdź czy jest na pozycji startowej
-            start_list = start_positions[color].get(piece)
+            start_list = start_positions.get(piece)
             is_home = False
             if isinstance(start_list, list) and sq in start_list:
-                is_home = True
-            elif isinstance(start_list, str) and sq == start_list:
                 is_home = True
 
             if is_home:
@@ -143,10 +139,37 @@ def reset_pieces_to_start(fen: str) -> str:
             if dest:
                 print(f"→ ustawiono na {dest}")
             steps.extend(standard_move(sq, dest, board_to_fen(new_board)))
+            if color == "white":
+                occupied_white.remove(sq)
+            elif color == "black":
+                occupied_black.remove(sq)
             print("Aktualny FEN:", board_to_fen(new_board))
             print("-----------------------")
 
     final_fen = board_to_fen(new_board)
+
+    missing_pieces = captured_counts_from_fen(final_fen)
+
+    # --- Wypisz ruchy ---
+    print("=== Brakujące figury ===")
+
+    print(board_to_fen(new_board))
+
+    for piece, diff in missing_pieces.items():
+        if diff <= 0:
+            continue
+        cementery_slots = CEMENTERY_FILES.get(piece, [])
+        color = "white" if piece.isupper() else "black"
+        for i in range(diff):
+            sq = cementery_slots[diff - i - 1]
+            print(f"{piece} z {sq} → reset")
+            dest = place_on_first_free(piece, color)
+            if dest:
+                print(f"→ ustawiono na {dest}")
+            steps.extend(standard_move(sq, dest, board_to_fen(new_board)))
+            print("Aktualny FEN:", board_to_fen(new_board))
+            print("-----------------------")
+    final_fen = START_FEN
     print("=== KONIEC ===")
     print("Końcowy FEN:", final_fen)
 
