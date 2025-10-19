@@ -72,6 +72,7 @@ pico.set_led(led_color, "ON")
 pico.set_led(new_color, "ON")
 
 pico.homing()
+pico.move_to(0, 0, 60.8, 46.2)
 pico.get_status()
 
 pico.set_led(led_color, "OFF")
@@ -241,7 +242,13 @@ def on_message(client, userdata, msg):
         for step in steps:
             print(f"➡️ {step.note}")
 
-            ok = pico.move_to(step.f_x, step.f_y, step.t_x, step.t_y, True)
+            ok = pico.move_to(
+                round(step.f_x, 2),
+                round(step.f_y, 2),
+                round(step.t_x, 2),
+                round(step.t_y, 2),
+                True,
+            )
             ok = True
             if not ok:
                 print("❌ Błąd ruchu I2C")
