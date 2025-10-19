@@ -5,10 +5,9 @@ from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple
 
 import chess
+import config
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
-
-import config
 from board_reset import reset_pieces_to_start
 from capture import capture_move
 from castle import castling_move
@@ -47,6 +46,10 @@ except Exception as e:
             print("homing")
             return True
 
+        def get_statu(self):
+            print("status")
+            return True
+
         def read_board(self):
             return dict()
 
@@ -69,6 +72,7 @@ pico.set_led(led_color, "ON")
 pico.set_led(new_color, "ON")
 
 pico.homing()
+pico.get_status()
 
 pico.set_led(led_color, "OFF")
 pico.set_led(new_color, "OFF")
@@ -237,7 +241,7 @@ def on_message(client, userdata, msg):
         for step in steps:
             print(f"➡️ {step.note}")
 
-            ok = pico.move_to(step.f_x, step.f_y, step.t_x, step.t_y)
+            ok = pico.move_to(step.f_x, step.f_y, step.t_x, step.t_y, True)
             ok = True
             if not ok:
                 print("❌ Błąd ruchu I2C")
