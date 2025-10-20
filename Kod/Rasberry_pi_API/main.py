@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple
 
 import chess
-import config
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
+
+import config
 from board_reset import reset_pieces_to_start
 from capture import capture_move
 from castle import castling_move
+from helpers import generate_move_json
 from promotion import promotion_move
 from promotion_capture import promotion_capture_move
 from square_to_cords import square_to_coords
@@ -46,7 +48,7 @@ except Exception as e:
             print("homing")
             return True
 
-        def get_statu(self):
+        def get_status(self):
             print("status")
             return True
 
@@ -190,6 +192,7 @@ def on_message(client, userdata, msg):
     global status_msg
     global current_fen
 
+    new_fen = ""
     try:
         if msg.topic == "control/restart/external":
             payload = msg.payload.decode()
@@ -202,7 +205,9 @@ def on_message(client, userdata, msg):
             if msg.topic != "move/raspi/rejected":
                 color_swap()
             payload = msg.payload.decode()
-            data = json.loads(payload)
+            move_data = json.loads(payload)
+            new_fen = move_data["fen"]
+            data = generate_move_json(current_fen, new_fen)
             print("✅ Otrzymano:", data)
 
         steps = []
@@ -250,7 +255,7 @@ def on_message(client, userdata, msg):
                 True,
             )
             ok = True
-            if not ok:
+            if ok == False:
                 print("❌ Błąd ruchu I2C")
                 break
 
