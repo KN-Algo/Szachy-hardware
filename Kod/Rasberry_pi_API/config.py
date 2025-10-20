@@ -2,8 +2,8 @@
 SQUARE_SIZE = 43.6
 HOME = (60.8, 46.2)
 LANE_OFFSET = SQUARE_SIZE / 2
-BOARD_ORIGIN_X_MM = 60.8  # X (kolumny a..h)
-BOARD_ORIGIN_Y_MM = 46.2  # Y (rząd 1..8)
+BOARD_ORIGIN_X_MM = 65.2
+BOARD_ORIGIN_Y_MM = 61.8
 
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
